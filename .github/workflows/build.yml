@@ -123,18 +123,18 @@ jobs:
         with:
           path: ~/.ccache
           # ccache is mode-specific because .config differs
-          key: ccache-${{ env.TARGET }}-${{ matrix.mode }}-v9-${{ hashFiles('openwrt/feeds.conf.default') }}
+          key: ccache-${{ env.TARGET }}-${{ matrix.mode }}-v10-${{ hashFiles('openwrt/feeds.conf.default') }}
           restore-keys: |
-            ccache-${{ env.TARGET }}-${{ matrix.mode }}-v9-
-            ccache-${{ env.TARGET }}-v9-
+            ccache-${{ env.TARGET }}-${{ matrix.mode }}-v10-
+            ccache-${{ env.TARGET }}-v10-
 
       - name: Cache toolchain (shared)
         uses: actions/cache@v4
         with:
           path: openwrt/staging_dir
           # toolchain is shared between AP and Router (same target)
-          key: toolchain-${{ env.TARGET }}-v9-${{ hashFiles('openwrt/include/version.mk') }}
-          restore-keys: toolchain-${{ env.TARGET }}-v9-
+          key: toolchain-${{ env.TARGET }}-v10-${{ hashFiles('openwrt/include/version.mk') }}
+          restore-keys: toolchain-${{ env.TARGET }}-v10-
 
       - name: Configure ccache
         run: |
@@ -220,8 +220,6 @@ jobs:
           CONFIG_DEVEL=y
           CONFIG_CCACHE=y
           CONFIG_USE_CCACHE=y
-          CONFIG_ALL_KMODS=y
-          CONFIG_ALL_NONSHARED=y
 
           # Image
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
@@ -315,8 +313,6 @@ jobs:
           CONFIG_DEVEL=y
           CONFIG_CCACHE=y
           CONFIG_USE_CCACHE=y
-          CONFIG_ALL_KMODS=y
-          CONFIG_ALL_NONSHARED=y
 
           # Image
           CONFIG_TARGET_ROOTFS_SQUASHFS=y
