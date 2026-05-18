@@ -15,7 +15,7 @@ Custom OpenWrt firmware for CMCC PZ-L8 router with two variants:
 | **PPPoE Support** | ❌ No | ✅ Yes |
 | **IPv6** | SLAAC client | Full (odhcp6c + odhcpd) |
 | **Mesh (802.11s)** | ✅ Yes + usteer | ❌ No |
-| **PHY-to-PHY 2Gbps** | ❌ No | ✅ Yes (PR #21496) |
+| **PHY-to-PHY 2Gbps** | ❌ No | ✅ Yes |
 | **LuCI** | Minimal | Full |
 | **RAM Optimization** | ath11k-smallbuffers | ath11k-smallbuffers |
 
@@ -55,14 +55,14 @@ Optimized for access point deployment. All Ethernet ports are bridged together, 
 
 ## Router Mode
 
-Full-featured router firmware with WAN/LAN separation, firewall, and PPPoE support. Includes PHY-to-PHY CPU link patch for 2Gbps throughput.
+Full-featured router firmware with WAN/LAN separation, firewall, PPPoE support, and PHY-to-PHY CPU link for 2Gbps throughput.
 
 ### Features
 
 - **Full Router Functions** - NAT, firewall, DHCP server
 - **PPPoE Support** - Direct ISP connection
 - **IPv6 Full Support** - DHCPv6-PD, RA, NAT66
-- **2Gbps Throughput** - PHY-to-PHY CPU link (PR #21496)
+- **2Gbps Throughput** - PHY-to-PHY CPU link
 - **Complete LuCI** - Full web management interface
 
 ### Default Network
@@ -144,7 +144,7 @@ apk add luci-i18n-base-zh-cn luci-i18n-package-manager-zh-cn
 | Patch | AP Mode | Router Mode | Description |
 |-------|---------|-------------|-------------|
 | [PR #21495](https://github.com/openwrt/openwrt/pull/21495) | ✅ | ✅ | Device support + ath11k-smallbuffers |
-| [PR #21496](https://github.com/openwrt/openwrt/pull/21496) | ❌ | ✅ | PHY-to-PHY CPU link for 2Gbps |
+| PHY-to-PHY (mainline) | ❌ | ✅ | PHY-to-PHY CPU link for 2Gbps |
 
 ### WiFi Board Data Files
 
@@ -209,7 +209,7 @@ free -m
 
 - OpenWrt Project - https://openwrt.org
 - PR #21495 contributors - Device support + ath11k-smallbuffers
-- PR #21496 contributors - PHY-to-PHY CPU link
+- PHY-to-PHY CPU link (merged to mainline)
 - BDF files from firmware_qca-wireless PR #106 by sqliuchang
 
 ## License
