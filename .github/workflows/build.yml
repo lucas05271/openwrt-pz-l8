@@ -532,10 +532,8 @@ jobs:
 
           #### Method 3: Sysupgrade (from existing OpenWrt)
           ```sh
-          sysupgrade /tmp/sysupgrade.bin
+          sysupgrade -n /tmp/sysupgrade.bin
           ```
-
-          **Note:** Do NOT use `-n` flag, otherwise your configuration will be wiped.
           EOF
 
           ls -la
