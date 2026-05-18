@@ -1,6 +1,6 @@
-# OpenWrt Firmware for CMCC PZ-L8
+# OpenWrt Firmware for CMCC PZ-L8 (with WiFi)
 
-Custom OpenWrt firmware for CMCC PZ-L8 router with two variants:
+Custom OpenWrt firmware with WiFi support (2.4GHz + 5GHz) for CMCC PZ-L8 router, available in two variants:
 * **AP Mode** for access point deployment
 * **Router Mode** for main router usage
 
@@ -205,8 +205,8 @@ free -m
 ## Credits
 
 - OpenWrt Project - https://openwrt.org
-- PR #21495 contributors - Device support + ath11k-smallbuffers
-- BDF files from firmware_qca-wireless PR #106 by sqliuchang
+- [PR #21495](https://github.com/openwrt/openwrt/pull/21495) contributors - Device support + ath11k-smallbuffers
+- [firmware_qca-wireless PR #106](https://github.com/openwrt/firmware_qca-wireless/pull/106) by sqliuchang - WiFi board data files (BDF)
 
 ## License
 
