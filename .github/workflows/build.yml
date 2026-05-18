@@ -532,8 +532,9 @@ jobs:
 
           #### Method 3: Sysupgrade (from existing OpenWrt)
           ```sh
-          sysupgrade -n /tmp/sysupgrade.bin
+          sysupgrade /tmp/sysupgrade.bin
           ```
+          Use `sysupgrade -n` only if you want to reset all settings to defaults.
           EOF
 
           ls -la
