@@ -1,0 +1,94 @@
+name: Build OpenWrt for CMCC PZ-L8
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TARGET: qualcommax
+  SUBTARGET: ipq50xx
+  DEVICE: cmcc_pz-l8
+  PR_21495_SHA: d4286eec1828e4843bceaccc400846854fa46955
+  BDF_COMMIT: f7ad5fee1924efdb5d8b2d1bf95bd3867d22e701
+
+jobs:
+  build:
+    name: Build ${{ matrix.mode }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 720
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: AP
+            mode_lower: ap
+          - mode: Router
+            mode_lower: router
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Checkout OpenWrt
+        uses: actions/checkout@v4
+        with:
+          repository: openwrt/openwrt
+          ref: main
+          path: openwrt
+          fetch-depth: 0
+
+      - name: Inject Local Plugins
+        working-directory: openwrt/package
+        run: |
+          # 将你仓库子文件夹中的插件源码复制到编译系统
+          cp -r $GITHUB_WORKSPACE/openwrt-pz-l8-main/luci-app-podkop .
+          echo "=== 插件源码已注入 ==="
+
+      - name: "Merge PR #21495 and fix caldata"
+        working-directory: openwrt
+        run: |
+          git config user.email "builder@github.com"
+          git config user.name "GitHub Actions"
+          git fetch origin ${{ env.PR_21495_SHA }}
+          if ! git merge FETCH_HEAD --no-edit; then
+            CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
+            git checkout --ours "$CALDATA"
+            git add "$CALDATA"
+            git commit --no-edit --no-verify
+          fi
+          CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
+          chmod +x "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh"
+          "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh" "$CALDATA"
+
+      - name: Download BDF files
+        working-directory: openwrt
+        run: |
+          mkdir -p files/lib/firmware/ath11k/IPQ5018/hw1.0
+          mkdir -p files/lib/firmware/ath11k/QCN6122/hw1.0
+          curl -L -o files/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.ipq5018"
+          curl -L -o files/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.qcn6122"
+
+      - name: Update and install feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Generate configuration
+        working-directory: openwrt
+        run: |
+          cp "$GITHUB_WORKSPACE/${{ matrix.mode_lower }}/${{ matrix.mode_lower }}.config" .config
+          make defconfig
+
+      - name: Build
+        working-directory: openwrt
+        run: make -j$(nproc) V=w
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ matrix.mode }}
+          path: openwrt/bin/targets/qualcommax/ipq50xx/*
