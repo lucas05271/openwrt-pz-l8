@@ -2,7 +2,6 @@
 openwrt/
 
 # Build artifacts
-bin/
 build_dir/
 staging_dir/
 tmp/

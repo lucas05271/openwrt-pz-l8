@@ -43,9 +43,10 @@ jobs:
       - name: Inject Local Plugins
         working-directory: openwrt/package
         run: |
-          # 将你仓库子文件夹中的插件源码复制到编译系统
-          cp -r $GITHUB_WORKSPACE/openwrt-pz-l8-main/luci-app-podkop .
-          echo "=== 插件源码已注入 ==="
+          # 修正路径：直接在根目录寻找
+          cp -r $GITHUB_WORKSPACE/luci-app-podkop .
+          cp -r $GITHUB_WORKSPACE/podkop .
+          echo "=== 插件源码（前端+后端）已成功注入 ==="
 
       - name: "Merge PR #21495 and fix caldata"
         working-directory: openwrt
@@ -80,6 +81,7 @@ jobs:
       - name: Generate configuration
         working-directory: openwrt
         run: |
+          # 修正路径：直接在根目录下的文件夹寻找配置
           cp "$GITHUB_WORKSPACE/${{ matrix.mode_lower }}/${{ matrix.mode_lower }}.config" .config
           make defconfig
 
