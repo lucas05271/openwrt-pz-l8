@@ -45,13 +45,19 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Checkout this repo
-        uses: actions/checkout@v4
-
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev python3-distutils python3-setuptools python3-dev rsync swig unzip zlib1g-dev file wget curl jq device-tree-compiler ccache libelf-dev libdw-dev libiberty-dev
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git \
+            libncurses-dev libssl-dev python3-distutils \
+            python3-setuptools python3-dev rsync swig unzip \
+            zlib1g-dev file wget curl jq device-tree-compiler \
+            ccache libelf-dev libdw-dev libiberty-dev
+
+      - name: Checkout this repo
+        uses: actions/checkout@v4
 
       - name: Checkout OpenWrt
         uses: actions/checkout@v4
@@ -61,11 +67,17 @@ jobs:
           path: openwrt
           fetch-depth: 0
 
-      - name: Inject Local Podkop Plugin
+      - name: Inject Local Podkop Plugin & Sing-box
         run: |
           # 提取你本地已上传的 Podkop 源码到编译目录
           cp -r $GITHUB_WORKSPACE/podkop openwrt/package/podkop
-          echo "=== 成功将本地 Podkop 注入到固件编译系统 ==="
+          echo "=== 成功将本地 Podkop 注入 ==="
+
+      - name: Checkout Sing-box
+        uses: actions/checkout@v4
+        with:
+          repository: sbwml/openwrt_singbox
+          path: openwrt/package/sing-box
 
       - name: "Merge PR #21495 and fix caldata"
         working-directory: openwrt
@@ -80,76 +92,9 @@ jobs:
             git commit --no-edit --no-verify
           fi
           CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
-          chmod +x "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh"
-          "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh" "$CALDATA"
+          chmod +x "$GITHUB_WORKSPACE/scripts/fix-caldata.sh"
+          "$GITHUB_WORKSPACE/scripts/fix-caldata.sh" "$CALDATA"
 
-      - name: Download BDF files
+      - name: "Add FM25LS01 SPI NAND support (V2 hardware)"
         working-directory: openwrt
         run: |
-          mkdir -p files/lib/firmware/ath11k/IPQ5018/hw1.0
-          mkdir -p files/lib/firmware/ath11k/QCN6122/hw1.0
-          curl -L -o files/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.ipq5018"
-          curl -L -o files/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.qcn6122"
-
-      - name: Inject Custom Settings (rc.local, WiFi, HT160 & Password)
-        working-directory: openwrt
-        run: |
-          echo "=== 开始注入自定义配置 ==="
-          mkdir -p files/etc/uci-defaults
-          
-          # 1. 注入本地启动脚本 (修改 rc.local)
-          cat << "EOF" > files/etc/rc.local
-          # Put your custom commands here that should be executed once
-          # the system init finished. By default this file does nothing.
-
-          echo "WR3000G" > /tmp/sysinfo/model
-          exit 0
-          EOF
-          chmod +x files/etc/rc.local
-          
-          # 2. 注入首次开机初始化脚本 (WiFi名称、密码、默认开启、160MHz)
-          cat << "EOF" > files/etc/uci-defaults/99-custom-settings
-          #!/bin/sh
-          
-          # 修改 radio0 (2.4G) 和 radio1 (5G) 的 SSID
-          uci -q set wireless.default_radio0.ssid='OpenWrt-2.4G'
-          uci -q set wireless.default_radio1.ssid='OpenWrt-5G'
-          
-          # 默认开启 Wi-Fi 开关 (将 disabled 设为 0)
-          uci -q set wireless.radio0.disabled='0'
-          uci -q set wireless.radio1.disabled='0'
-          
-          # 强制 5G (radio1) 使用 Wi-Fi 6 的 160MHz 频宽
-          uci -q set wireless.radio1.htmode='HE160'
-          
-          uci commit wireless
-          
-          # 修改 root 默认密码为 admin
-          printf "admin\nadmin\n" | passwd root
-          
-          exit 0
-          EOF
-          chmod +x files/etc/uci-defaults/99-custom-settings
-          echo "=== 自定义配置注入完成 ==="
-
-      - name: Update and install feeds
-        working-directory: openwrt
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Generate configuration
-        working-directory: openwrt
-        run: |
-          cp "$GITHUB_WORKSPACE/${{ matrix.mode_lower }}/${{ matrix.mode_lower }}.config" .config
-          make defconfig
-
-      - name: Build
-        working-directory: openwrt
-        run: make -j$(nproc) V=w
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: openwrt-${{ matrix.mode }}
-          path: openwrt/bin/targets/qualcommax/ipq50xx/*
