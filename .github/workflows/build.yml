@@ -67,17 +67,11 @@ jobs:
           path: openwrt
           fetch-depth: 0
 
-      - name: Inject Local Podkop Plugin & Sing-box
+      - name: Inject Local Podkop Plugin
         run: |
           # 提取你本地已上传的 Podkop 源码到编译目录
           cp -r $GITHUB_WORKSPACE/podkop openwrt/package/podkop
           echo "=== 成功将本地 Podkop 注入 ==="
-
-      - name: Checkout Sing-box
-        uses: actions/checkout@v4
-        with:
-          repository: sbwml/openwrt_singbox
-          path: openwrt/package/sing-box
 
       - name: "Merge PR #21495 and fix caldata"
         working-directory: openwrt
@@ -92,8 +86,8 @@ jobs:
             git commit --no-edit --no-verify
           fi
           CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
-          chmod +x "$GITHUB_WORKSPACE/scripts/fix-caldata.sh"
-          "$GITHUB_WORKSPACE/scripts/fix-caldata.sh" "$CALDATA"
+          chmod +x "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh"
+          "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh" "$CALDATA"
 
       - name: "Add FM25LS01 SPI NAND support (V2 hardware)"
         working-directory: openwrt
