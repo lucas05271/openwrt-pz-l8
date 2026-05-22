@@ -1,7 +1,27 @@
+# GitHub Actions workflow for building OpenWrt firmware for CMCC PZ-L8
+# Builds AP and Router modes in parallel, releases together
+#
+# Config organization:
+#   variants/ap/ap.config          - AP mode build config
+#   variants/router/router.config  - Router mode build config
+#   variants/ap/etc/uci-defaults/  - AP mode first-boot scripts
+#   scripts/   - CI build scripts (modify OpenWrt source tree)
+#   patches/  - Kernel/device patches applied during build
+#
+# To add a new variant:
+#   1. Create variants/<name>/<name>.config with desired packages
+#   2. Create variants/<name>/etc/uci-defaults/ with any first-boot scripts
+#   3. Add entry to matrix.include below
+
 name: Build OpenWrt for CMCC PZ-L8
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (leave empty for no release)'
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,6 +31,7 @@ env:
   TARGET: qualcommax
   SUBTARGET: ipq50xx
   DEVICE: cmcc_pz-l8
+  # Pinned commit SHAs (update when upstream changes)
   PR_21495_SHA: d4286eec1828e4843bceaccc400846854fa46955
   BDF_COMMIT: f7ad5fee1924efdb5d8b2d1bf95bd3867d22e701
 
@@ -29,6 +50,33 @@ jobs:
             mode_lower: router
 
     steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Show system info
+        run: |
+          echo "=== Disk ===" && df -h /
+          echo "=== Memory ===" && free -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git \
+            libncurses-dev libssl-dev python3-distutils \
+            python3-setuptools python3-dev rsync swig unzip \
+            zlib1g-dev file wget curl jq device-tree-compiler \
+            ccache libelf-dev libdw-dev libiberty-dev
+
       - name: Checkout this repo
         uses: actions/checkout@v4
 
@@ -40,39 +88,101 @@ jobs:
           path: openwrt
           fetch-depth: 0
 
-      - name: Inject Local Plugins
-        working-directory: openwrt/package
-        run: |
-          # 修正路径：直接在根目录寻找
-          cp -r $GITHUB_WORKSPACE/luci-app-podkop .
-          cp -r $GITHUB_WORKSPACE/podkop .
-          echo "=== 插件源码（前端+后端）已成功注入 ==="
-
       - name: "Merge PR #21495 and fix caldata"
         working-directory: openwrt
         run: |
           git config user.email "builder@github.com"
           git config user.name "GitHub Actions"
+
+          # Fetch and merge PR #21495 into main (stay on main, don't checkout PR branch)
           git fetch origin ${{ env.PR_21495_SHA }}
           if ! git merge FETCH_HEAD --no-edit; then
+            echo "=== Merge conflicts detected (expected for caldata) ==="
             CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
+            # Take main's caldata (has latest device entries), fix-caldata.sh will insert PZ-L8
             git checkout --ours "$CALDATA"
             git add "$CALDATA"
             git commit --no-edit --no-verify
+            echo "=== Caldata conflict resolved (using main version) ==="
           fi
-          CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
-          chmod +x "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh"
-          "$GITHUB_WORKSPACE/.github/scripts/fix-caldata.sh" "$CALDATA"
 
-      - name: Download BDF files
+          # Verify pinned commit is in history
+          if ! git log --oneline | grep -q "d4286eec"; then
+            echo "ERROR: Pinned PR #21495 commit d4286eec not found."
+            exit 1
+          fi
+
+          # Insert PZ-L8 caldata entries with review-approved settings
+          CALDATA=target/linux/qualcommax/ipq50xx/base-files/etc/hotplug.d/firmware/11-ath11k-caldata
+          chmod +x "$GITHUB_WORKSPACE/scripts/fix-caldata.sh"
+          "$GITHUB_WORKSPACE/scripts/fix-caldata.sh" "$CALDATA"
+
+      - name: "Add FM25LS01 SPI NAND support (V2 hardware)"
+        working-directory: openwrt
+        run: |
+          # Copy FM25LS01 patch to generic backport directory so it gets
+          # applied automatically during kernel source preparation.
+          # This adds support for the FMSH FM25LS01 SPI NAND flash chip used
+          # in later revisions (V2) of the CMCC PZ-L8 router.
+          PATCH_DIR=target/linux/generic/backport-6.12
+          PATCH_SRC="$GITHUB_WORKSPACE/patches/add-fm25ls01-support.patch"
+          PATCH_DST="$PATCH_DIR/440-v6.12-mtd-spinand-add-support-for-FudanMicro-FM25LS01.patch"
+
+          if [ ! -f "$PATCH_SRC" ]; then
+            echo "ERROR: FM25LS01 patch not found at $PATCH_SRC"
+            exit 1
+          fi
+
+          cp "$PATCH_SRC" "$PATCH_DST"
+          echo "=== FM25LS01 patch installed ==="
+          echo "Path: $PATCH_DST"
+          ls -la "$PATCH_DST"
+
+      - name: Download BDF files for PZ-L8 WiFi
         working-directory: openwrt
         run: |
           mkdir -p files/lib/firmware/ath11k/IPQ5018/hw1.0
           mkdir -p files/lib/firmware/ath11k/QCN6122/hw1.0
-          curl -L -o files/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.ipq5018"
-          curl -L -o files/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.qcn6122"
 
-      - name: Update and install feeds
+          # IPQ5000 (2.4GHz SoC built-in WiFi)
+          curl -L -o files/lib/firmware/ath11k/IPQ5018/hw1.0/board-2.bin \
+            "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.ipq5018"
+
+          # QCN6102 (5GHz external WiFi module)
+          curl -L -o files/lib/firmware/ath11k/QCN6122/hw1.0/board-2.bin \
+            "https://github.com/openwrt/firmware_qca-wireless/raw/${{ env.BDF_COMMIT }}/board-cmcc_pz-l8.qcn6122"
+
+          echo "=== BDF files ==="
+          ls -la files/lib/firmware/ath11k/IPQ5018/hw1.0/
+          ls -la files/lib/firmware/ath11k/QCN6122/hw1.0/
+
+      - name: Copy mode-specific overlay files
+        run: |
+          VARIANT_DIR="$GITHUB_WORKSPACE/variants/${{ matrix.mode_lower }}"
+          if [ -d "$VARIANT_DIR/etc" ]; then
+            cp -r "$VARIANT_DIR/etc" openwrt/files/
+            echo "=== Copied overlay files from $VARIANT_DIR/etc ==="
+            find openwrt/files/ -type f | sort
+          else
+            echo "No overlay files for ${{ matrix.mode }} mode"
+          fi
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-${{ env.TARGET }}-${{ matrix.mode_lower }}-v13-${{ hashFiles('variants/*', 'patches/*', 'openwrt/feeds.conf.default') }}
+          restore-keys: |
+            ccache-${{ env.TARGET }}-${{ matrix.mode_lower }}-v13-
+
+      - name: Configure ccache
+        run: |
+          ccache --set-config=cache_dir=~/.ccache
+          ccache --set-config=max_size=10G
+          ccache --set-config=compression=true
+          ccache -z
+
+      - name: Update feeds
         working-directory: openwrt
         run: |
           ./scripts/feeds update -a
@@ -81,16 +191,109 @@ jobs:
       - name: Generate configuration
         working-directory: openwrt
         run: |
-          # 修正路径：直接在根目录下的文件夹寻找配置
-          cp "$GITHUB_WORKSPACE/${{ matrix.mode_lower }}/${{ matrix.mode_lower }}.config" .config
+          cp "$GITHUB_WORKSPACE/variants/${{ matrix.mode_lower }}/${{ matrix.mode_lower }}.config" .config
           make defconfig
+          make defconfig
+
+      - name: Download sources
+        working-directory: openwrt
+        run: |
+          for i in 1 2 3; do
+            echo "Download attempt $i/3..."
+            if make download -j$(nproc) V=s; then break; fi
+            [ $i -eq 3 ] && exit 1
+            sleep 30
+          done
 
       - name: Build
         working-directory: openwrt
-        run: make -j$(nproc) V=w
+        run: make -j$(nproc) V=w || make -j1 V=w || make -j1 V=s
+
+      - name: Show ccache stats
+        run: ccache -s
+
+      - name: Prepare artifacts
+        run: |
+          mkdir -p artifacts
+
+          echo "=== Device build output ==="
+          find openwrt/bin/targets/qualcommax/ipq50xx/ -maxdepth 1 -type f | sort
+
+          echo "=== Copying firmware images ==="
+          cp -v openwrt/bin/targets/qualcommax/ipq50xx/*factory*.ubi artifacts/ 2>/dev/null || echo "No factory.ubi found"
+          cp -v openwrt/bin/targets/qualcommax/ipq50xx/*sysupgrade*.bin artifacts/ 2>/dev/null || echo "No sysupgrade.bin found"
+          cp -v openwrt/bin/targets/qualcommax/ipq50xx/sha256sums artifacts/ 2>/dev/null || true
+
+          cd artifacts
+          echo "=== Artifacts ==="
+          ls -lh
+          sha256sum * > sha256sums.txt 2>/dev/null || true
+
+          cat > BUILD_INFO.txt << EOF
+          Mode: ${{ matrix.mode }}
+          Build: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          Target: ${{ env.TARGET }}/${{ env.SUBTARGET }}
+          Device: ${{ env.DEVICE }}
+          Branch: main
+          Patches: PR #21495 (${{ env.PR_21495_SHA }}), FM25LS01 SPI NAND
+          EOF
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: openwrt-${{ matrix.mode }}
-          path: openwrt/bin/targets/qualcommax/ipq50xx/*
+          path: artifacts/
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-22.04
+    if: inputs.release_tag != ''
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Download AP artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: openwrt-AP
+          path: artifacts/ap/
+
+      - name: Download Router artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: openwrt-Router
+          path: artifacts/router/
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+
+          for f in artifacts/ap/*-sysupgrade.bin; do
+            [ -f "$f" ] && cp "$f" "release/openwrt-pz-l8-sysupgrade-ap.bin"
+          done
+          for f in artifacts/ap/*-factory.ubi; do
+            [ -f "$f" ] && cp "$f" "release/openwrt-pz-l8-factory-ap.ubi"
+          done
+
+          for f in artifacts/router/*-sysupgrade.bin; do
+            [ -f "$f" ] && cp "$f" "release/openwrt-pz-l8-sysupgrade-router.bin"
+          done
+          for f in artifacts/router/*-factory.ubi; do
+            [ -f "$f" ] && cp "$f" "release/openwrt-pz-l8-factory-router.ubi"
+          done
+
+          cd release
+          sha256sum * > sha256sums
+          ls -la
+
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: release/*
+          body_path: .github/release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

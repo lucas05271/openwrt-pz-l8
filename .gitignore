@@ -2,6 +2,7 @@
 openwrt/
 
 # Build artifacts
+bin/
 build_dir/
 staging_dir/
 tmp/
@@ -32,3 +33,4 @@ Thumbs.db
 *.tar.xz
 *.zip
 openwrt-pz-l8/
+openwrt-upstream/

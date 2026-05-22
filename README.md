@@ -140,6 +140,22 @@ apk add luci-i18n-base-zh-cn luci-i18n-package-manager-zh-cn
 - CMCC PZ-L8 device support
 - ath11k-smallbuffers: optimized WiFi driver for 256MB RAM devices, reduces buffer sizes to lower memory usage
 
+### Patch FM25LS01 Support
+
+Later batches (V2) of the CMCC PZ-L8 use the FMSH FM25LS01 SPI NAND flash chip instead of the ESMT F50D1G41LB used in earlier batches.  
+The FM25LS01 driver is not yet included in the upstream Linux kernel or OpenWrt.  
+This project adds support via a patch adapted from [ImmortalWrt](https://github.com/immortalwrt/immortalwrt/blob/cec44a8d851230dff1807d616f264593f4fa13ae/target/linux/generic/hack-6.12/400-mtd-spinand-Support-fmsh.patch#L187-L195).
+
+| Specification | Value |
+|---------------|-------|
+| JEDEC ID | `0xA5` |
+| Capacity | 128MiB |
+| Page size | 2048 bytes |
+| OOB size | 128 bytes |
+| ECC | 1 bit / 512 bytes (software) |
+
+> **Disclaimer**: The author does not own a V2 device and cannot fully test this patch. It may not work perfectly. If you encounter issues (e.g., flash detection failure, data corruption), please report them to [ImmortalWrt](https://github.com/immortalwrt/immortalwrt/issues).
+
 ### WiFi Board Data Files
 
 - **Source**: [firmware_qca-wireless PR #106](https://github.com/openwrt/firmware_qca-wireless/pull/106)
@@ -153,22 +169,27 @@ apk add luci-i18n-base-zh-cn luci-i18n-package-manager-zh-cn
 ## Project Structure
 
 ```
-ap/
-  ap.config                   # AP mode: full build config (target, WiFi, mesh, minimal LuCI)
-  etc/uci-defaults/           # AP mode first-boot scripts (self-delete after run)
-router/
-  router.config               # Router mode: full build config (target, WiFi, firewall, full LuCI)
+variants/
+  ap/
+    ap.config                   # AP mode: full build config (target, WiFi, mesh, minimal LuCI)
+    etc/uci-defaults/           # AP mode first-boot scripts (self-delete after run)
+  router/
+    router.config               # Router mode: full build config (target, WiFi, firewall, full LuCI)
+scripts/
+  fix-caldata.sh                # Caldata fix for PR #21495 review feedback
+patches/
+  add-fm25ls01-support.patch    # FM25LS01 SPI NAND support for V2 hardware
 .github/
-  scripts/fix-caldata.sh      # Caldata fix for PR #21495 review feedback
-  release-notes.md            # Release notes template
+  workflows/build.yml           # CI build workflow
+  release-notes.md              # Release notes template
 ```
 
 ### Custom Variant
 
 To add a new build variant (e.g., "Server" mode):
 
-1. Create `server/server.config` with the desired packages (copy an existing config as template)
-2. Create `server/etc/uci-defaults/` with any first-boot scripts
+1. Create `variants/server/server.config` with the desired packages (copy an existing config as template)
+2. Create `variants/server/etc/uci-defaults/` with any first-boot scripts
 3. Add an entry to the build matrix in `.github/workflows/build.yml`:
 
 ```yaml
