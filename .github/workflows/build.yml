@@ -205,6 +205,15 @@ jobs:
             sleep 30
           done
 
+      - name: Download sources
+        working-directory: openwrt
+        run: |
+          for i in 1 2 3; do
+            if make download -j$(nproc) V=s; then break; fi
+            [ $i -eq 3 ] && exit 1
+            sleep 30
+          done
+
       - name: Build
         working-directory: openwrt
         run: make -j$(nproc) V=w || make -j1 V=w || make -j1 V=s
