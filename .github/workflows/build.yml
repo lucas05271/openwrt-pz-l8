@@ -71,14 +71,39 @@ jobs:
             cp "$PATCH_SRC" "$PATCH_DIR/440-v6.12-mtd-spinand-add-support-for-FudanMicro-FM25LS01.patch"
           fi
 
-      - name: Inject Pre-configured Defaults
+      # 动态生成出厂配置（完美规避 Windows 换行符导致的变砖死机）
+      - name: Inject Dynamic Factory Defaults
         working-directory: openwrt
         run: |
-          echo "=== 注入出厂配置 ==="
-          cp -r $GITHUB_WORKSPACE/files/* ./files/ 2>/dev/null || true
+          echo "=== 动态注入出厂配置 ==="
           mkdir -p files/etc/uci-defaults
-          echo 'echo "WR3000G" > /tmp/sysinfo/model' > files/etc/uci-defaults/99-model-name
-          chmod +x files/etc/uci-defaults/99-model-name
+          mkdir -p files/etc
+          
+          if [ ! -f files/etc/rc.local ]; then
+            echo "# Put your custom commands here" > files/etc/rc.local
+            echo "exit 0" >> files/etc/rc.local
+          fi
+          sed -i '/exit 0/i echo "WR3000G" > /tmp/sysinfo/model' files/etc/rc.local
+          chmod +x files/etc/rc.local
+
+          cat << "EOF" > files/etc/uci-defaults/99-factory-settings
+          #!/bin/sh
+          uci -q set wireless.radio0.country='RU'
+          uci -q set wireless.radio1.country='RU'
+          uci -q set wireless.default_radio0.ssid='OPENWRT-2.4G'
+          uci -q set wireless.default_radio0.encryption='psk2'
+          uci -q set wireless.default_radio0.key='9876543210'
+          uci -q set wireless.default_radio1.ssid='OPENWRT-5G'
+          uci -q set wireless.default_radio1.encryption='psk2'
+          uci -q set wireless.default_radio1.key='9876543210'
+          uci -q set wireless.radio0.disabled='0'
+          uci -q set wireless.radio1.disabled='0'
+          uci commit wireless
+          
+          printf "admin\nadmin\n" | passwd root
+          exit 0
+          EOF
+          chmod +x files/etc/uci-defaults/99-factory-settings
 
       - name: Download BDF files
         working-directory: openwrt
@@ -94,57 +119,32 @@ jobs:
           ./scripts/feeds install -a
 
       # ==========================================
-      # 核心调整：智能提取 + 熔断检测机制
+      # 破除死循环的精准注入 + 熔断检测
       # ==========================================
       - name: Generate configuration & Fail-Fast Check
         working-directory: openwrt
         run: |
           cp "$GITHUB_WORKSPACE/variants/${{ matrix.mode_lower }}/${{ matrix.mode_lower }}.config" .config
           
-          echo "=== 1. 扫描插件真实包名 ==="
-          grep -oP '^define Package/\K[^ \t\n]+' package/podkop/Makefile > pkg_names.txt || true
-          if [ ! -s pkg_names.txt ]; then
-            echo "❌ 致命错误：在 package/podkop/Makefile 中找不到包名！"
-            exit 1
-          fi
-          echo "找到真实包名："
-          cat pkg_names.txt
-          
-          echo "=== 2. 强行注入核心依赖 ==="
+          echo "=== 1. 精准注入插件 (不干预底层依赖，打破死循环) ==="
           {
             echo "CONFIG_PACKAGE_luci=y"
-            echo "CONFIG_PACKAGE_luci-base=y"
             echo "CONFIG_PACKAGE_luci-compat=y"
-            echo "CONFIG_PACKAGE_curl=y"
-            echo "CONFIG_PACKAGE_ca-bundle=y"
-            echo "CONFIG_PACKAGE_kmod-tun=y"
+            echo "CONFIG_PACKAGE_podkop=y"
           } >> .config
           
-          while IFS= read -r pkg; do
-            echo "CONFIG_PACKAGE_$pkg=y" >> .config
-          done < pkg_names.txt
-          
-          echo "=== 3. 依赖洗牌 (make defconfig) ==="
+          echo "=== 2. 依赖洗牌 (make defconfig) ==="
+          make defconfig
           make defconfig
           
-          echo "=== 4. 熔断检测 (防止白等 1.5 小时) ==="
-          MISSING=0
-          while IFS= read -r pkg; do
-            if ! grep -q "CONFIG_PACKAGE_$pkg=y" .config; then
-              echo "❌ 致命预警：[$pkg] 在洗牌阶段被系统静默剔除！"
-              MISSING=1
-            else
-              echo "✅ 成功：[$pkg] 已钉死在固件清单中！"
-            fi
-          done < pkg_names.txt
-          
-          if [ $MISSING -eq 1 ]; then
+          echo "=== 3. 熔断检测 ==="
+          if ! grep -q "CONFIG_PACKAGE_podkop=y" .config; then
             echo "========================================================"
-            echo "🚨 编译已自动熔断！"
-            echo "系统检查到插件依然被删除了！"
-            echo "继续编译只会浪费时间，请立刻把这段日志截图发给 Gemini！"
+            echo "🚨 编译已自动熔断！依然被删！"
             echo "========================================================"
             exit 1
+          else
+            echo "✅ 成功：[podkop] 已经通过依赖审查，钉死在固件中！"
           fi
 
       - name: Download sources
